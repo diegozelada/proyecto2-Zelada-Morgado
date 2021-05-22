@@ -1,0 +1,292 @@
+---
+title: "Proyecto 2"
+output: github_document
+---
+# Proyecto 2 - Zelada Morgado
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+- El presente proyecto consta de recomendar canciones basandonos en reproducciones pasadas, tal como lo hace spotify, por lo que se creará una lista de 3 horas de duración basandonos en alguna canción de referencia.
+
+
+## Liberías 
+ - Adjunto liberías utilizadas en el proyecto 
+```{r ejemplo sample}
+library(tidyverse)
+library(cluster)
+library(factoextra)
+library(janitor)
+library(ggdendro)
+library(tidyverse)
+library(datasets)
+```
+
+
+
+## Cargo los datos 
+```{r cargar lib}
+getwd()
+
+setwd("D:/Universidad/Minería de datos 2/proyecto2-Zelada-Morgado")
+
+
+load("D:/Universidad/Minería de datos 2/beats.RData")
+
+
+
+```
+
+## seleciono variables
+ - Para este caso, se seleccionaron las variables. Las variables que utilizaremos son las variales numéricas que definen características de las canciones. Luego se procede a realizar un summary para ver la información de los datos.
+
+```{r cargar datos}
+data= beats[,c(1,8,9, 10, 11, 12, 13, 14, 15, 16, 17, 18,19, 23, 25,27)]
+
+summary(data)
+head(data)
+
+```
+
+
+#Limpieza de datos
+
+ - Luego asignamos valores NA a las casillas que no tienen datos en la base de datos y los eliminamos, posteriormente corroboramos que no queden datos NA.
+
+
+```{r limpieza de datos}
+
+
+ data %>% 
+  summarise_all(funs(sum(is.na(.))))
+
+
+data_pre <- data %>% filter(!(is.na(duration_ms)|is.na(track_name)))
+
+
+data_pre %>%  summarise_all(funs(sum(is.na(.))))
+
+
+```
+
+ - Ahora se procede a reconocer si existe valores duplicados, se parte por realizar una consulta para ver los valores distintos. Luego se procede a crear una variable que almacene si exsite duplicidad en canción y/o artista, posteriormente eliminamos estos datos y nos quedamos con una data mas limpia.
+
+```{R eliminar duplicados}
+
+
+data_pre <- data_pre[!duplicated(data_pre$track_id),]
+
+
+data_pre %>% count(duplicated(data_pre$track_name))
+
+  
+data_pre %>% distinct(track_name, .keep_all = TRUE, )
+
+data_pre$duplicate <- duplicated(data_pre[,c("track_name","artist_name")])
+
+
+data_dupli <- data_pre %>% 
+  filter(data_pre$duplicate == TRUE) %>% 
+  arrange("track_name", "energy", desc(energy))
+
+
+data_dupli <- data_dupli %>%  distinct(track_name, artist_name, .keep_all = TRUE)
+
+data_pre <- data_pre[!(data_pre$duplicate == TRUE),]
+
+data_pre <- rbind(data_pre, data_dupli)
+
+
+data_pre$duplicate <- NULL
+
+```
+
+ - Como se volvieron a generar valors Na en la base de datos, ejecutamos de nuevl el paso uno de la limpieza de datos. Primero se verifica si aún quedan valores NA, luego se verifica que existan valores repetidos y se vuelve a lifrtrar la data para limpiarla.
+
+```{R seguimos limpiando}
+
+data %>% 
+  summarise_all(funs(sum(is.na(.))))
+
+
+data_pre %>% count(duplicated(data_pre$track_name))
+
+  
+data_pre %>% distinct(track_name, .keep_all = TRUE, )
+
+
+data_pre$duplicate <- duplicated(data_pre[,c("track_name", "artist_name")])
+
+
+
+
+data_dupli <- data_dupli %>% 
+  distinct(track_name, artist_name, .keep_all = TRUE)
+
+
+data_pre <- data_pre[!(data_pre$duplicate == TRUE),]
+
+
+data_pre <- rbind(data_pre, data_dupli)
+
+
+data_pre$duplicate <- NULL
+
+
+```
+
+ - Luego pasamos a la última etapa del proceso de limpieza de datos, en esta etapa se realiza un sample para poder quedarnos con una muestra de datos aleatorios y así poder disminuir la cantidad de datos, luego la variable que determina el tiempo de la canción la pasamos de milisegundos a segundos, para poder tener clusters que sean como mínimo de 3 horas de duración.
+Finalmente separamos las variables numéricas y escalamos estos datos.
+
+```{R ultima etapa filtrar datos}
+set.seed(123)
+n=nrow(data_pre)
+L=round(0.01*n)
+
+filas=sample(1:n, size = L, replace = F)
+
+data_final=data_pre[filas,]
+
+
+data_final <- data_final %>% mutate(duration_min = data_final$duration_ms/60000)
+
+
+data_char <- c("artist_name", "track_id", "track_href", "track_name")
+
+
+data_dou <- c("danceability", "energy", "key", "loudness", "mode", "speechiness", "acousticness", "instrumentalness", "liveness", "valence", "tempo", "duration_ms", "duration_min")
+
+
+
+
+
+summary(data_final)
+
+str(data_final)
+
+datanum <- data_final %>% 
+  select(data_dou)
+
+datachar <- data_final %>% 
+  select(data_char)
+
+
+data_sca <- sapply(datanum, scale)
+
+
+```
+
+#Proceso de realizar cluster
+
+##Obtenemos las distancias
+
+ - Esto se realiza para poder obtener información visual de como se comportan los datos y que tan distribuidos están.
+
+```{R distancia}
+
+
+d = dist(data_sca, method = "euclidean")
+
+
+d1 = dist(data_sca, method = "manhattan")
+
+
+d2 = dist(data_sca, method = "minkowski")
+
+hist(d, main = "Histograma Distancia Euclideana")
+
+hist(d1, main = "Histograma Distancia Manhattan")
+hist(d2, main = "Histograma Distancia Minkowski")
+
+```
+
+##Cluster jerárquico y observaciones 
+
+ - Procedemos a realizar el cluster jerárquico, se realizan dos modelos y se comparan. Luego se procede a graficar los daots obtenidos del cluster jerárquico. 
+
+ - Posteriormente se comienza a iterar con el fin de obtener un valor "h" que determine la cantidad de clusters que se deben generar. Nosotros concluimos que se debía realizar un corte en la altura = 7 y así obtener 16 clusters. Esto con el fin de separar las canciones de acuerdo a ciertos parámetros y juntar las canciones que se parecen mas unas a otras en un mismo cluster
+```{R cluster jerárquico}
+##complete model
+set.seed(123)
+
+model_complete <- hclust(d, method = "complete")
+
+summary(model_complete)
+
+
+set.seed(123)
+
+model_ward <- hclust(d, method = "ward.D")
+
+summary(model_ward)
+
+
+
+models <- c("complete", "ward")
+names(models) <- c("complete", "ward")
+
+agcoef <- function(x) {
+  agnes(data_sca, method = x)$ac
+}
+
+##dendrograma
+
+ggdendrogram(model_complete, rotate = FALSE, theme_dendro = TRUE) 
+plot(model_complete)
+rect.hclust(model_complete, k=7, border= "yellow")
+
+
+# Determinamos un valor para h lo que nos entregara un valor distinto de k para cada h que escogamos, tambien podemos definir el k desde un inicio
+groups <- cutree(model_complete, h = 7)
+
+
+table(groups)
+
+
+data_final$clust <- as.factor(groups)
+datanum$clust <- as.factor(groups)
+
+fviz_cluster(list(data = data_sca, cluster = groups))
+
+
+
+#caracteristicas de los clusters
+
+
+datanum$clust <- as.numeric(as.character(datanum$clust))
+
+
+infoclusters <- aggregate(datanum, by=list(cluster=datanum$clust), mean)
+
+infoclusters$clust <- NULL
+
+infoclusters$duration_ms <- NULL
+
+infoclusters
+
+
+```
+#Ordeno la Base de datos
+
+ - Ordeno la base de datos en cuanto a la duración de todas las canciones de un cluster y además dentro de cada cluster, lo ordeno en cuanto a la energía que tiene cada cancíón de mayor a menor, para que la canción siguiente, sea de la misma energía, igualmente de que tan bailable es o no.
+ 
+ 
+```{R Base de datos ordenada}
+
+data_ordenada= datanum %>% arrange(clust, desc(energy))
+
+data_ordenada
+
+playlist = data_ordenada %>% group_by(clust) %>%
+            summarise( duracion_cada_cluster= sum(duration_min)) %>%
+            arrange(desc(duracion_cada_cluster))
+
+playlist
+
+```
+
+
+
