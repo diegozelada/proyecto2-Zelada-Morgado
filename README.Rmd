@@ -34,7 +34,7 @@ getwd()
 setwd("D:/Universidad/Minería de datos 2/proyecto2-Zelada-Morgado")
 
 
-load("D:/Universidad/Minería de datos 2/beats.RData")
+load("D:/Universidad/Minería de datos 2/proyecto2-Zelada-Morgado/beats.RData")
 
 
 
